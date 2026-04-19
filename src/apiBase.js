@@ -13,18 +13,12 @@ export const resolveApiBaseUrl = () => {
     return "http://localhost:3000";
   }
 
-  return "";
+  return trimTrailingSlash(window.location.origin);
 };
 
 export const API_BASE_URL = resolveApiBaseUrl();
 
 export const apiUrl = (path) => {
-  if (!API_BASE_URL) {
-    throw new Error(
-      "Falta VITE_API_BASE_URL en produccion. Configura la URL publica de tu backend.",
-    );
-  }
-
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   return `${API_BASE_URL}${cleanPath}`;
 };
