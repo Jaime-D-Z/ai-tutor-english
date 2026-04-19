@@ -39,6 +39,15 @@ app.use((req, res, next) => {
 });
 app.use(express.json());
 
+// In serverless platforms like Vercel, requests may arrive as /api/*.
+// Normalize to existing routes (/correct, /chat, etc.) so both formats work.
+app.use((req, res, next) => {
+  if (typeof req.url === "string" && req.url.startsWith("/api/")) {
+    req.url = req.url.slice(4);
+  }
+  next();
+});
+
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
 });
