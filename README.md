@@ -54,3 +54,7 @@ Create a `.env` file based on `.env.example`.
 - Deploy backend separately (Render/Railway/Fly/etc) and set:
   - `VITE_API_BASE_URL=https://your-backend-domain.com`
   - `FRONTEND_ORIGINS=https://ai-tutor-english.vercel.app`
+- If you see `POST https://ai-tutor-english.vercel.app/chat 404`, your frontend is calling itself.
+  - Go to Vercel Project Settings -> Environment Variables
+  - Add `VITE_API_BASE_URL` with your backend public URL
+  - Redeploy frontend
