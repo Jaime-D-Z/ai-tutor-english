@@ -61,12 +61,12 @@ Create a `.env` file based on `.env.example`.
 
 ## Vercel Same-Domain API
 
-This project includes `vercel.json` rewrites and `api/index.js` so these frontend calls work on the same Vercel domain:
+This project includes `api/[...all].js` so frontend calls work on the same Vercel domain through `/api/*`:
 
-- `/correct`
-- `/speaking`
-- `/generate-questions`
-- `/evaluate-answers`
-- `/chat`
+- `/api/correct`
+- `/api/speaking`
+- `/api/generate-questions`
+- `/api/evaluate-answers`
+- `/api/chat`
 
 For this mode, you can keep local `.env` simple and do not need `VITE_API_BASE_URL` locally.

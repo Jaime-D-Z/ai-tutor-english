@@ -13,7 +13,7 @@ export const resolveApiBaseUrl = () => {
     return "http://localhost:3000";
   }
 
-  return trimTrailingSlash(window.location.origin);
+  return `${trimTrailingSlash(window.location.origin)}/api`;
 };
 
 export const API_BASE_URL = resolveApiBaseUrl();
