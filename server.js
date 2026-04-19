@@ -6,18 +6,81 @@ import Groq from "groq-sdk";
 dotenv.config();
 
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
+const FRONTEND_ORIGINS = String(process.env.FRONTEND_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const defaultAllowedOrigins = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "https://ai-tutor-english.vercel.app",
+];
+const allowedOrigins = new Set([...defaultAllowedOrigins, ...FRONTEND_ORIGINS]);
 
 const app = express();
 const port = 3000;
 
-app.use(cors());
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.has(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("Origen no permitido por CORS."));
+    },
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Private-Network", "true");
+  next();
+});
 app.use(express.json());
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
 });
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function retryDelayFromError(error) {
+  const message = String(error?.message || "");
+  const match = message.match(/try again in\s*(\d+)ms/i);
+  const suggested = match ? Number(match[1]) : 300;
+  return Number.isFinite(suggested) ? suggested : 300;
+}
+
+async function createGroqCompletion(payload, maxRetries = 2) {
+  let attempt = 0;
+
+  while (attempt <= maxRetries) {
+    try {
+      return await groq.chat.completions.create(payload);
+    } catch (error) {
+      const isRateLimited = Number(error?.status) === 429;
+      if (!isRateLimited || attempt === maxRetries) {
+        throw error;
+      }
+
+      const waitMs = retryDelayFromError(error) + attempt * 200;
+      await sleep(waitMs);
+      attempt += 1;
+    }
+  }
+
+  throw new Error("No se pudo completar la solicitud al modelo.");
+}
+
 const ALLOWED_LEVELS = ["A1", "A2", "B1", "B2", "C1"];
+const ALLOWED_TOEFL_SECTIONS = [
+  "reading",
+  "listening",
+  "structure_written_expression",
+];
 const MIN_TOEFL_QUESTIONS = 20;
 
 function extractJsonFromContent(content) {
@@ -75,6 +138,7 @@ function sanitizeQuestion(question) {
 
   return {
     question: String(question?.question || ""),
+    section: String(question?.section || "reading").toLowerCase(),
     question_type: String(question?.question_type || "reading").toLowerCase(),
     passage: String(question?.passage || ""),
     options,
@@ -82,8 +146,42 @@ function sanitizeQuestion(question) {
   };
 }
 
-function buildDiverseFallbackQuestions(level) {
-  const sets = [
+function normalizeSections(sections) {
+  const incoming = Array.isArray(sections) ? sections : [];
+  const clean = incoming
+    .map((section) =>
+      String(section || "")
+        .trim()
+        .toLowerCase(),
+    )
+    .filter((section) => ALLOWED_TOEFL_SECTIONS.includes(section));
+
+  if (!clean.length) return ["reading"];
+  return Array.from(new Set(clean));
+}
+
+function inferSectionFromQuestionType(questionType) {
+  const value = String(questionType || "").toLowerCase();
+  if (value.startsWith("listening")) return "listening";
+  if (value.startsWith("structure")) return "structure_written_expression";
+  return "reading";
+}
+
+function normalizeQuestionTypeBySection(questionType, section) {
+  const value = String(questionType || "").toLowerCase();
+  if (section === "listening") {
+    return value.startsWith("listening") ? value : "listening_detail";
+  }
+  if (section === "structure_written_expression") {
+    return value.startsWith("structure")
+      ? value
+      : "structure_sentence_completion";
+  }
+  return value.startsWith("reading") ? value : "reading_main_idea";
+}
+
+function buildDiverseFallbackQuestions(level, selectedSections = ["reading"]) {
+  const readingSets = [
     {
       passage:
         "In many coastal cities, local governments are building wetlands near urban neighborhoods. These wetlands absorb storm water, reduce flood risks, and provide habitats for birds and fish. Although the projects require initial funding, city planners report lower long-term costs for flood repairs.",
@@ -325,9 +423,145 @@ function buildDiverseFallbackQuestions(level) {
     },
   ];
 
-  const flatQuestions = sets.flatMap((set) =>
+  const listeningSets = [
+    {
+      passage:
+        "Listen to a short conversation: A student asks a professor for an extension on a project because a bus strike delayed access to campus resources.",
+      questions: [
+        {
+          question_type: "listening_main_purpose",
+          question: "Why does the student speak to the professor?",
+          options: [
+            "To request an extension.",
+            "To register for a class.",
+            "To report a classroom error.",
+            "To ask for a grade change.",
+          ],
+          correct_answer: "A",
+        },
+        {
+          question_type: "listening_detail",
+          question: "What problem does the student mention?",
+          options: [
+            "A library closure for renovations.",
+            "A bus strike that caused delays.",
+            "A computer virus in the lab.",
+            "A canceled final exam.",
+          ],
+          correct_answer: "B",
+        },
+      ],
+    },
+    {
+      passage:
+        "Listen to part of a lecture: The professor explains that coral reefs support biodiversity and protect coastlines, but warming oceans are increasing coral bleaching events.",
+      questions: [
+        {
+          question_type: "listening_main_idea",
+          question: "What is the main topic of the lecture segment?",
+          options: [
+            "How to build artificial beaches.",
+            "The ecological role of coral reefs and current threats.",
+            "Why fish species migrate every winter.",
+            "How ocean salinity is measured in labs.",
+          ],
+          correct_answer: "B",
+        },
+        {
+          question_type: "listening_inference",
+          question: "What does the professor imply about coral bleaching?",
+          options: [
+            "It is unrelated to ocean temperature.",
+            "It is becoming more frequent due to warming waters.",
+            "It only affects deep-sea reefs.",
+            "It increases reef biodiversity.",
+          ],
+          correct_answer: "B",
+        },
+      ],
+    },
+  ];
+
+  const structureSets = [
+    {
+      passage: "Choose the sentence with the best grammar.",
+      questions: [
+        {
+          question_type: "structure_grammar",
+          question: "Which sentence is grammatically correct?",
+          options: [
+            "She don't like early classes.",
+            "She doesn't likes early classes.",
+            "She doesn't like early classes.",
+            "She not like early classes.",
+          ],
+          correct_answer: "C",
+        },
+        {
+          question_type: "structure_written_expression",
+          question:
+            "Choose the best revision: 'The results was surprising to the team.'",
+          options: [
+            "The results were surprising to the team.",
+            "The result were surprising to the team.",
+            "The results is surprising to the team.",
+            "The results be surprising to the team.",
+          ],
+          correct_answer: "A",
+        },
+      ],
+    },
+    {
+      passage: "Complete the sentence with the most accurate structure.",
+      questions: [
+        {
+          question_type: "structure_sentence_completion",
+          question: "By the time we arrived, the lecture ____.",
+          options: [
+            "already starts",
+            "had already started",
+            "has already start",
+            "was already start",
+          ],
+          correct_answer: "B",
+        },
+        {
+          question_type: "structure_parallelism",
+          question: "Choose the sentence with correct parallel structure.",
+          options: [
+            "He enjoys reading, to write, and running.",
+            "He enjoys reading, writing, and running.",
+            "He enjoys read, writing, and to run.",
+            "He enjoys to read, writing, and run.",
+          ],
+          correct_answer: "B",
+        },
+      ],
+    },
+  ];
+
+  const sectionMap = {
+    reading: readingSets,
+    listening: listeningSets,
+    structure_written_expression: structureSets,
+  };
+
+  const selectedSets = selectedSections.flatMap(
+    (section) => sectionMap[section] || [],
+  );
+  const usableSets = selectedSets.length ? selectedSets : readingSets;
+
+  const flatQuestions = usableSets.flatMap((set) =>
     set.questions.map((q) => ({
       question: `${q.question} (Level ${level})`,
+      section:
+        selectedSections.length === 1
+          ? selectedSections[0]
+          : String(q.question_type).startsWith("listening")
+            ? "listening"
+            : String(q.question_type).startsWith("structure")
+              ? "structure_written_expression"
+              : "reading",
       question_type: q.question_type,
       passage: set.passage,
       options: q.options,
@@ -335,11 +569,16 @@ function buildDiverseFallbackQuestions(level) {
     })),
   );
 
-  return flatQuestions.slice(0, MIN_TOEFL_QUESTIONS);
+  const repeated = [];
+  while (repeated.length < MIN_TOEFL_QUESTIONS) {
+    repeated.push(flatQuestions[repeated.length % flatQuestions.length]);
+  }
+
+  return repeated.slice(0, MIN_TOEFL_QUESTIONS);
 }
 
-function fallbackQuestionByIndex(level, index) {
-  const bank = buildDiverseFallbackQuestions(level);
+function fallbackQuestionByIndex(level, index, selectedSections = ["reading"]) {
+  const bank = buildDiverseFallbackQuestions(level, selectedSections);
   return bank[index % bank.length];
 }
 
@@ -361,14 +600,61 @@ function coerceQuestionsPayload(parsed) {
   return [];
 }
 
-function enforceEnglishQuestions(questions, level) {
+function enforceEnglishQuestions(
+  questions,
+  level,
+  selectedSections = ["reading"],
+) {
   return questions.map((question, index) => {
     const mergedText = `${question.question} ${question.passage} ${question.options.join(" ")}`;
     if (!looksLikeSpanish(mergedText)) {
       return question;
     }
-    return fallbackQuestionByIndex(level, index);
+    return fallbackQuestionByIndex(level, index, selectedSections);
   });
+}
+
+function alignQuestionsWithSections(questions, selectedSections) {
+  return questions.map((question, index) => {
+    const currentSection = String(question.section || "").toLowerCase();
+    if (selectedSections.includes(currentSection)) {
+      return {
+        ...question,
+        question_type: normalizeQuestionTypeBySection(
+          question.question_type,
+          currentSection,
+        ),
+      };
+    }
+
+    const inferred = inferSectionFromQuestionType(question.question_type);
+    if (selectedSections.includes(inferred)) {
+      return {
+        ...question,
+        section: inferred,
+        question_type: normalizeQuestionTypeBySection(
+          question.question_type,
+          inferred,
+        ),
+      };
+    }
+
+    const forcedSection = selectedSections[index % selectedSections.length];
+    return {
+      ...question,
+      section: forcedSection,
+      question_type: normalizeQuestionTypeBySection(
+        question.question_type,
+        forcedSection,
+      ),
+    };
+  });
+}
+
+function keepOnlySelectedSections(questions, selectedSections) {
+  return questions.filter((question) =>
+    selectedSections.includes(String(question.section || "").toLowerCase()),
+  );
 }
 
 function hasReasonableQuizDiversity(questions) {
@@ -401,9 +687,16 @@ function hasReasonableQuizDiversity(questions) {
   return uniqueQuestionStems >= 12 && uniqueTypes >= 4 && uniquePassages >= 4;
 }
 
-function ensureMinimumQuestions(questions, level) {
+function ensureMinimumQuestions(
+  questions,
+  level,
+  selectedSections = ["reading"],
+) {
   const completed = [...questions];
-  const diverseFallback = buildDiverseFallbackQuestions(level);
+  const diverseFallback = buildDiverseFallbackQuestions(
+    level,
+    selectedSections,
+  );
   let fallbackIndex = 0;
 
   while (completed.length < MIN_TOEFL_QUESTIONS) {
@@ -445,7 +738,7 @@ app.post("/correct", async (req, res) => {
 
     const prompt = `Corrige el siguiente texto en ingles, explica los errores y traducelo al espanol. Responde unicamente en JSON valido con las claves: corrected, explanation, translation.\n\nTexto: ${text}`;
 
-    const completion = await groq.chat.completions.create({
+    const completion = await createGroqCompletion({
       model: GROQ_MODEL,
       messages: [
         {
@@ -497,7 +790,7 @@ app.post("/speaking", async (req, res) => {
 
     const prompt = `Analiza el siguiente texto hablado por un estudiante de ingles. Corrige errores, evalua fluidez y da sugerencias de pronunciacion (aunque sea estimada). Responde en JSON con: corrected, fluency_feedback, pronunciation_tips.\n\nTexto: ${text}`;
 
-    const completion = await groq.chat.completions.create({
+    const completion = await createGroqCompletion({
       model: GROQ_MODEL,
       messages: [
         {
@@ -536,6 +829,7 @@ app.post("/generate-questions", async (req, res) => {
     const level = String(req.body?.level || "")
       .trim()
       .toUpperCase();
+    const sections = normalizeSections(req.body?.sections);
 
     if (!ALLOWED_LEVELS.includes(level)) {
       return res.status(400).json({
@@ -549,17 +843,17 @@ app.post("/generate-questions", async (req, res) => {
       });
     }
 
-    const prompt = `Generate exactly ${MIN_TOEFL_QUESTIONS} TOEFL Reading multiple-choice questions for CEFR level ${level}.\n\nRequirements:\n- ALL text must be in English only.\n- Use realistic TOEFL reading styles: main idea, detail, inference, vocabulary in context, reference, purpose, sentence insertion.\n- Each question has exactly 4 options and one correct answer (A/B/C/D).\n- Include short reading passages when needed.\n\nReturn valid JSON only in this exact structure:\n[\n  {\n    \"question\": \"...\",\n    \"question_type\": \"reading_main_idea\",\n    \"passage\": \"...\",\n    \"options\": [\"...\", \"...\", \"...\", \"...\"],\n    \"correct_answer\": \"A\"\n  }\n]`;
+    const prompt = `Generate exactly ${MIN_TOEFL_QUESTIONS} TOEFL-style multiple-choice questions for CEFR level ${level}.\n\nSelected sections: ${sections.join(", ")}.\n\nRequirements:\n- ALL text must be in English only.\n- Match the selected TOEFL sections strictly.\n- Each question has exactly 4 options and one correct answer (A/B/C/D).\n- Include short passages/transcripts when needed.\n- Add section field using one of: reading, listening, structure_written_expression.\n\nReturn valid JSON only in this exact structure:\n[\n  {\n    \"section\": \"reading\",\n    \"question\": \"...\",\n    \"question_type\": \"reading_main_idea\",\n    \"passage\": \"...\",\n    \"options\": [\"...\", \"...\", \"...\", \"...\"],\n    \"correct_answer\": \"A\"\n  }\n]`;
 
     let normalizedQuestions = [];
 
     try {
-      const completion = await groq.chat.completions.create({
+      const completion = await createGroqCompletion({
         model: GROQ_MODEL,
         messages: [
           {
             role: "system",
-            content: `You are a TOEFL Reading test generator. Return JSON only. Produce exactly ${MIN_TOEFL_QUESTIONS} questions in English only.`,
+            content: `You are a TOEFL test generator. Return JSON only. Produce exactly ${MIN_TOEFL_QUESTIONS} questions in English for sections: ${sections.join(", ")}.`,
           },
           {
             role: "user",
@@ -573,7 +867,19 @@ app.post("/generate-questions", async (req, res) => {
       const parsed = extractJsonFromContent(content);
       const extractedQuestions = coerceQuestionsPayload(parsed);
       normalizedQuestions = extractedQuestions.map(sanitizeQuestion);
-      normalizedQuestions = enforceEnglishQuestions(normalizedQuestions, level);
+      normalizedQuestions = enforceEnglishQuestions(
+        normalizedQuestions,
+        level,
+        sections,
+      );
+      normalizedQuestions = alignQuestionsWithSections(
+        normalizedQuestions,
+        sections,
+      );
+      normalizedQuestions = keepOnlySelectedSections(
+        normalizedQuestions,
+        sections,
+      );
     } catch (aiError) {
       console.warn(
         "Fallo IA en /generate-questions, usando fallback:",
@@ -581,10 +887,17 @@ app.post("/generate-questions", async (req, res) => {
       );
     }
 
-    let questions = ensureMinimumQuestions(normalizedQuestions, level);
+    let questions = ensureMinimumQuestions(
+      normalizedQuestions,
+      level,
+      sections,
+    );
+    questions = alignQuestionsWithSections(questions, sections);
+    questions = keepOnlySelectedSections(questions, sections);
+    questions = ensureMinimumQuestions(questions, level, sections);
 
     if (!hasReasonableQuizDiversity(questions)) {
-      const diverseFallback = buildDiverseFallbackQuestions(level);
+      const diverseFallback = buildDiverseFallbackQuestions(level, sections);
       const merged = [...questions, ...diverseFallback].map(sanitizeQuestion);
       const seen = new Set();
       questions = merged.filter((q) => {
@@ -594,7 +907,7 @@ app.post("/generate-questions", async (req, res) => {
         seen.add(key);
         return true;
       });
-      questions = ensureMinimumQuestions(questions, level);
+      questions = ensureMinimumQuestions(questions, level, sections);
     }
 
     return res.json({ questions });
@@ -641,7 +954,7 @@ app.post("/evaluate-answers", async (req, res) => {
       cleanQuestions,
     )}\n\nUser answers: ${JSON.stringify(cleanUserAnswers)}`;
 
-    const completion = await groq.chat.completions.create({
+    const completion = await createGroqCompletion({
       model: GROQ_MODEL,
       messages: [
         {
@@ -714,7 +1027,7 @@ app.post("/chat", async (req, res) => {
       });
     }
 
-    const completion = await groq.chat.completions.create({
+    const completion = await createGroqCompletion({
       model: GROQ_MODEL,
       messages: [
         {

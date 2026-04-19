@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from 'vue'
+import { apiUrl } from './apiBase'
 
 const transcript = ref('')
 const isRecording = ref(false)
@@ -38,7 +39,7 @@ const analyzeSpeaking = async () => {
   clearResult()
 
   try {
-    const response = await fetch('http://localhost:3000/speaking', {
+    const response = await fetch(apiUrl('/speaking'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

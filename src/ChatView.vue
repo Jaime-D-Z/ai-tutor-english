@@ -1,5 +1,6 @@
 <script setup>
 import { nextTick, ref } from 'vue'
+import { apiUrl } from './apiBase'
 
 const messages = ref([
   {
@@ -41,7 +42,7 @@ const sendMessage = async () => {
       content: message.content
     }))
 
-    const response = await fetch('http://localhost:3000/chat', {
+    const response = await fetch(apiUrl('/chat'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

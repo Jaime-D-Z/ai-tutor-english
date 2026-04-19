@@ -1,8 +1,15 @@
 <script setup>
 import { ref } from 'vue'
+import { apiUrl } from './apiBase'
 
 const levels = ['A1', 'A2', 'B1', 'B2', 'C1']
+const sectionOptions = [
+  { id: 'reading', label: 'Reading' },
+  { id: 'listening', label: 'Listening' },
+  { id: 'structure_written_expression', label: 'Structure' }
+]
 const selectedLevel = ref('B1')
+const selectedSections = ref(['reading'])
 const questions = ref([])
 const userAnswers = ref([])
 const loadingQuestions = ref(false)
@@ -33,6 +40,30 @@ const answerStateClass = (question, questionIndex, optionIndex) => {
   return ''
 }
 
+const sectionLabel = (section) => {
+  if (section === 'listening') return 'Listening'
+  if (section === 'structure_written_expression') return 'Structure'
+  return 'Reading'
+}
+
+const passageLabel = (section) => {
+  if (section === 'listening') return 'Audio transcript'
+  if (section === 'structure_written_expression') return 'Prompt'
+  return 'Reading passage'
+}
+
+const toggleSection = (sectionId) => {
+  const exists = selectedSections.value.includes(sectionId)
+
+  if (exists) {
+    if (selectedSections.value.length === 1) return
+    selectedSections.value = selectedSections.value.filter((item) => item !== sectionId)
+    return
+  }
+
+  selectedSections.value = [...selectedSections.value, sectionId]
+}
+
 const generateQuestions = async () => {
   loadingQuestions.value = true
   errorMessage.value = ''
@@ -41,12 +72,15 @@ const generateQuestions = async () => {
   resetEvaluation()
 
   try {
-    const response = await fetch('http://localhost:3000/generate-questions', {
+    const response = await fetch(apiUrl('/generate-questions'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ level: selectedLevel.value })
+      body: JSON.stringify({
+        level: selectedLevel.value,
+        sections: selectedSections.value
+      })
     })
 
     const data = await response.json()
@@ -83,7 +117,7 @@ const evaluateAnswers = async () => {
   resetEvaluation()
 
   try {
-    const response = await fetch('http://localhost:3000/evaluate-answers', {
+    const response = await fetch(apiUrl('/evaluate-answers'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -123,6 +157,23 @@ const evaluateAnswers = async () => {
         <option v-for="level in levels" :key="level" :value="level">{{ level }}</option>
       </select>
 
+      <div class="section-picker">
+        <p>Seccion TOEFL</p>
+        <label
+          v-for="section in sectionOptions"
+          :key="section.id"
+          class="section-option"
+        >
+          <input
+            type="checkbox"
+            :checked="selectedSections.includes(section.id)"
+            :disabled="loadingQuestions || evaluating"
+            @change="toggleSection(section.id)"
+          />
+          <span>{{ section.label }}</span>
+        </label>
+      </div>
+
       <button class="primary" :disabled="loadingQuestions || evaluating" @click="generateQuestions">
         {{ loadingQuestions ? 'Generando 20 preguntas...' : 'Generar 20 preguntas' }}
       </button>
@@ -133,9 +184,10 @@ const evaluateAnswers = async () => {
     <div v-if="questions.length" class="questions-list">
       <article v-for="(question, qIndex) in questions" :key="qIndex" class="question-card">
         <h2>Pregunta {{ qIndex + 1 }}</h2>
+        <p class="section-chip">Seccion: {{ sectionLabel(question.section) }}</p>
         <p class="type-chip">Tipo: {{ question.question_type || 'reading' }}</p>
         <div v-if="question.passage" class="passage-box">
-          <h3>Reading passage</h3>
+          <h3>{{ passageLabel(question.section) }}</h3>
           <p>{{ question.passage }}</p>
         </div>
         <p class="question-text">{{ question.question }}</p>
@@ -208,6 +260,29 @@ const evaluateAnswers = async () => {
   font-weight: 600;
 }
 
+.section-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.section-picker p {
+  margin: 0;
+  font-weight: 700;
+}
+
+.section-option {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 0.3rem 0.6rem;
+  background: #fff;
+  font-size: 0.9rem;
+}
+
 select {
   border: 1px solid #cbd5e1;
   border-radius: 10px;
@@ -270,6 +345,19 @@ select {
   border-radius: 999px;
   background: #e9efff;
   color: #1e3a8a;
+}
+
+.section-chip {
+  margin: 0.55rem 0 0;
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: #e8f7ed;
+  color: #166534;
 }
 
 .passage-box {

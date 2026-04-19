@@ -1,8 +1,6 @@
 <script setup>
 import { ref } from 'vue'
-
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'
-const GROQ_MODEL = import.meta.env.VITE_GROQ_MODEL || 'llama-3.1-8b-instant'
+import { apiUrl } from './apiBase'
 
 const inputText = ref('')
 const loading = ref(false)
@@ -21,24 +19,6 @@ const clearResult = () => {
   }
 }
 
-const parseModelJson = (content) => {
-  if (!content || typeof content !== 'string') {
-    throw new Error('La IA no devolvio contenido.')
-  }
-
-  try {
-    return JSON.parse(content)
-  } catch {
-    const jsonMatch = content.match(/\{[\s\S]*\}/)
-
-    if (!jsonMatch) {
-      throw new Error('No se pudo extraer un JSON valido de la respuesta de la IA.')
-    }
-
-    return JSON.parse(jsonMatch[0])
-  }
-}
-
 const handleCorrection = async () => {
   errorMessage.value = ''
 
@@ -52,50 +32,26 @@ const handleCorrection = async () => {
   clearResult()
 
   try {
-    const apiKey = import.meta.env.VITE_GROQ_API_KEY
-
-    if (!apiKey) {
-      throw new Error('Falta VITE_GROQ_API_KEY en tu archivo .env.')
-    }
-
-    const prompt = `Corrige el siguiente texto en ingles, explica los errores y traducelo al espanol. Responde unicamente en JSON valido con las claves: corrected, explanation, translation.\n\nTexto: ${inputText.value}`
-
-    const response = await fetch(GROQ_API_URL, {
+    const response = await fetch(apiUrl('/correct'), {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: GROQ_MODEL,
-        temperature: 0.2,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'Eres un tutor de ingles. Devuelves solo JSON valido con las claves: corrected, explanation, translation.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ]
+        text: inputText.value
       })
     })
 
     const data = await response.json()
 
     if (!response.ok) {
-      throw new Error(data?.error?.message || 'Ocurrio un error con Groq.')
+      throw new Error(data.error || 'No se pudo corregir el texto.')
     }
 
-    const content = data?.choices?.[0]?.message?.content || ''
-    const parsed = parseModelJson(content)
-
     result.value = {
-      corrected: parsed.corrected || '',
-      explanation: parsed.explanation || '',
-      translation: parsed.translation || ''
+      corrected: data.corrected || '',
+      explanation: data.explanation || '',
+      translation: data.translation || ''
     }
   } catch (error) {
     errorMessage.value = error.message || 'No se pudo completar la correccion.'
