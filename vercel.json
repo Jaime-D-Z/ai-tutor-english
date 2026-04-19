@@ -1,0 +1,9 @@
+{
+  "rewrites": [
+    { "source": "/correct", "destination": "/api/correct" },
+    { "source": "/speaking", "destination": "/api/speaking" },
+    { "source": "/generate-questions", "destination": "/api/generate-questions" },
+    { "source": "/evaluate-answers", "destination": "/api/evaluate-answers" },
+    { "source": "/chat", "destination": "/api/chat" }
+  ]
+}

@@ -1080,6 +1080,10 @@ app.use((error, req, res, next) => {
   return next(error);
 });
 
-app.listen(port, () => {
-  console.log(`Servidor activo en http://localhost:${port}`);
-});
+if (process.env.VERCEL !== "1") {
+  app.listen(port, () => {
+    console.log(`Servidor activo en http://localhost:${port}`);
+  });
+}
+
+export default app;

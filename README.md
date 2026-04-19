@@ -58,3 +58,15 @@ Create a `.env` file based on `.env.example`.
   - Go to Vercel Project Settings -> Environment Variables
   - Add `VITE_API_BASE_URL` with your backend public URL
   - Redeploy frontend
+
+## Vercel Same-Domain API
+
+This project includes `vercel.json` rewrites and `api/index.js` so these frontend calls work on the same Vercel domain:
+
+- `/correct`
+- `/speaking`
+- `/generate-questions`
+- `/evaluate-answers`
+- `/chat`
+
+For this mode, you can keep local `.env` simple and do not need `VITE_API_BASE_URL` locally.

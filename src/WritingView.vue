@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue'
-import { apiUrl } from './apiBase'
+import { requestJson } from './apiBase'
 
 const inputText = ref('')
 const loading = ref(false)
@@ -32,7 +32,7 @@ const handleCorrection = async () => {
   clearResult()
 
   try {
-    const response = await fetch(apiUrl('/correct'), {
+    const data = await requestJson('/correct', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -41,12 +41,6 @@ const handleCorrection = async () => {
         text: inputText.value
       })
     })
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      throw new Error(data.error || 'No se pudo corregir el texto.')
-    }
 
     result.value = {
       corrected: data.corrected || '',

@@ -1,6 +1,6 @@
 <script setup>
 import { nextTick, ref } from 'vue'
-import { apiUrl } from './apiBase'
+import { requestJson } from './apiBase'
 
 const messages = ref([
   {
@@ -42,19 +42,13 @@ const sendMessage = async () => {
       content: message.content
     }))
 
-    const response = await fetch(apiUrl('/chat'), {
+    const data = await requestJson('/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ messages: payloadMessages })
     })
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      throw new Error(data.error || 'No se pudo obtener respuesta del tutor.')
-    }
 
     const assistantMessage = data?.message
 

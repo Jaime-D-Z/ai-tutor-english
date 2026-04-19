@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue'
-import { apiUrl } from './apiBase'
+import { requestJson } from './apiBase'
 
 const transcript = ref('')
 const isRecording = ref(false)
@@ -39,19 +39,13 @@ const analyzeSpeaking = async () => {
   clearResult()
 
   try {
-    const response = await fetch(apiUrl('/speaking'), {
+    const data = await requestJson('/speaking', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ text: transcript.value })
     })
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      throw new Error(data.error || 'No se pudo analizar el speaking.')
-    }
 
     result.value = {
       corrected: data.corrected || '',

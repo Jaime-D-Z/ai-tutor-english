@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue'
-import { apiUrl } from './apiBase'
+import { requestJson } from './apiBase'
 
 const levels = ['A1', 'A2', 'B1', 'B2', 'C1']
 const sectionOptions = [
@@ -72,7 +72,7 @@ const generateQuestions = async () => {
   resetEvaluation()
 
   try {
-    const response = await fetch(apiUrl('/generate-questions'), {
+    const data = await requestJson('/generate-questions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -82,12 +82,6 @@ const generateQuestions = async () => {
         sections: selectedSections.value
       })
     })
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      throw new Error(data.error || 'No se pudieron generar preguntas.')
-    }
 
     const generated = Array.isArray(data.questions) ? data.questions : []
 
@@ -117,7 +111,7 @@ const evaluateAnswers = async () => {
   resetEvaluation()
 
   try {
-    const response = await fetch(apiUrl('/evaluate-answers'), {
+    const data = await requestJson('/evaluate-answers', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -127,12 +121,6 @@ const evaluateAnswers = async () => {
         user_answers: userAnswers.value
       })
     })
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      throw new Error(data.error || 'No se pudo evaluar el quiz.')
-    }
 
     score.value = typeof data.score === 'number' ? data.score : null
     feedback.value = Array.isArray(data.feedback) ? data.feedback : []
