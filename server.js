@@ -1069,6 +1069,17 @@ app.post("/chat", async (req, res) => {
   }
 });
 
+app.use((error, req, res, next) => {
+  if (error?.message === "Origen no permitido por CORS.") {
+    return res.status(403).json({
+      error:
+        "Origen no permitido. Configura FRONTEND_ORIGINS con tu dominio de frontend.",
+    });
+  }
+
+  return next(error);
+});
+
 app.listen(port, () => {
   console.log(`Servidor activo en http://localhost:${port}`);
 });

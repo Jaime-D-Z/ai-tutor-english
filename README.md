@@ -36,3 +36,21 @@ npm run dev
 ```sh
 npm run build
 ```
+
+## Environment Variables
+
+Create a `.env` file based on `.env.example`.
+
+- `GROQ_API_KEY`: Groq API key (backend only).
+- `GROQ_MODEL`: model name, default `llama-3.1-8b-instant`.
+- `VITE_API_BASE_URL`: backend base URL used by frontend.
+  - Local dev: `http://localhost:3000`
+  - Production: your deployed backend URL (do not use localhost)
+- `FRONTEND_ORIGINS`: comma-separated origins allowed by backend CORS.
+
+## Production Deployment Notes
+
+- Frontend deployed on Vercel cannot call `http://localhost:3000` in browser.
+- Deploy backend separately (Render/Railway/Fly/etc) and set:
+  - `VITE_API_BASE_URL=https://your-backend-domain.com`
+  - `FRONTEND_ORIGINS=https://ai-tutor-english.vercel.app`
